@@ -8,25 +8,26 @@ import { styles } from '../../core/theme';
 import { useAppStore } from '../../core/store';
 import { Product } from '../../core/types/models';
 import { listFavorites, listHistory, toggleFavorite } from '../../data/storage/localDb';
+import { Reveal } from '../../core/ui/Reveal';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Waiter'>;
 type MenuItem = Product & { category: string; description: string };
 
 const MENU_LANCHONETE: MenuItem[] = [
-  { barcode: '7891000000103', productId: 'm1', sku: 'LAN-001', name: 'Hambúrguer Artesanal', unitPrice: 28.9, stock: 999, category: 'Lanches', description: 'Pão brioche, blend 180g e queijo.' },
+  { barcode: '7891000000103', productId: 'm1', sku: 'LAN-001', name: 'Hamburguer Artesanal', unitPrice: 28.9, stock: 999, category: 'Lanches', description: 'Pao brioche, blend 180g e queijo.' },
   { barcode: '7891000000104', productId: 'm2', sku: 'LAN-002', name: 'X-Salada', unitPrice: 24.9, stock: 999, category: 'Lanches', description: 'Tradicional com alface e tomate.' },
-  { barcode: '7891000000105', productId: 'm3', sku: 'POR-001', name: 'Batata Média', unitPrice: 29.9, stock: 999, category: 'Porções', description: 'Porção média crocante.' },
-  { barcode: '7891000000106', productId: 'm4', sku: 'POR-002', name: 'Torresmo', unitPrice: 24.9, stock: 999, category: 'Porções', description: 'Torresmo sequinho.' },
+  { barcode: '7891000000105', productId: 'm3', sku: 'POR-001', name: 'Batata Media', unitPrice: 29.9, stock: 999, category: 'Porcoes', description: 'Porcao media crocante.' },
+  { barcode: '7891000000106', productId: 'm4', sku: 'POR-002', name: 'Torresmo', unitPrice: 24.9, stock: 999, category: 'Porcoes', description: 'Torresmo sequinho.' },
   { barcode: '7891000000107', productId: 'm5', sku: 'BEB-001', name: 'Cerveja Lata 350ml', unitPrice: 9.0, stock: 999, category: 'Bebidas', description: 'Gelada para consumo imediato.' },
-  { barcode: '7891000000108', productId: 'm6', sku: 'BEB-002', name: 'Refrigerante Lata', unitPrice: 7.0, stock: 999, category: 'Bebidas', description: 'Opção normal ou zero.' },
+  { barcode: '7891000000108', productId: 'm6', sku: 'BEB-002', name: 'Refrigerante Lata', unitPrice: 7.0, stock: 999, category: 'Bebidas', description: 'Opcao normal ou zero.' },
   { barcode: '7891000000109', productId: 'm7', sku: 'SOB-001', name: 'Brownie', unitPrice: 13.9, stock: 999, category: 'Sobremesas', description: 'Com calda de chocolate.' },
 ];
 
 const MENU_GENERICO: MenuItem[] = [
-  { barcode: '7899000001001', productId: 'g1', sku: 'BAL-001', name: 'Item de Balcão A', unitPrice: 19.9, stock: 999, category: 'Balcão', description: 'Produto para atendimento rápido.' },
-  { barcode: '7899000001002', productId: 'g2', sku: 'BAL-002', name: 'Item de Balcão B', unitPrice: 11.5, stock: 999, category: 'Balcão', description: 'Pode ser trocado pelo catálogo do cliente.' },
-  { barcode: '7899000001003', productId: 'g3', sku: 'SERV-001', name: 'Serviço Especial', unitPrice: 29.0, stock: 999, category: 'Serviços', description: 'Uso para lojas sem mesa.' },
-  { barcode: '7899000001004', productId: 'g4', sku: 'BEB-900', name: 'Bebida', unitPrice: 6.9, stock: 999, category: 'Bebidas', description: 'Exemplo para personalização.' },
+  { barcode: '7899000001001', productId: 'g1', sku: 'BAL-001', name: 'Item de Balcao A', unitPrice: 19.9, stock: 999, category: 'Balcao', description: 'Produto para atendimento rapido.' },
+  { barcode: '7899000001002', productId: 'g2', sku: 'BAL-002', name: 'Item de Balcao B', unitPrice: 11.5, stock: 999, category: 'Balcao', description: 'Pode ser trocado pelo catalogo do cliente.' },
+  { barcode: '7899000001003', productId: 'g3', sku: 'SERV-001', name: 'Servico Especial', unitPrice: 29.0, stock: 999, category: 'Servicos', description: 'Uso para lojas sem mesa.' },
+  { barcode: '7899000001004', productId: 'g4', sku: 'BEB-900', name: 'Bebida', unitPrice: 6.9, stock: 999, category: 'Bebidas', description: 'Exemplo para personalizacao.' },
 ];
 
 export function WaiterScreen({ navigation }: Props) {
@@ -41,6 +42,7 @@ export function WaiterScreen({ navigation }: Props) {
   const addByProduct = useAppStore((s) => s.addByProduct);
   const updateQty = useAppStore((s) => s.updateQty);
   const removeItem = useAppStore((s) => s.removeItem);
+  const clearItems = useAppStore((s) => s.clearItems);
   const total = useAppStore((s) => s.total);
 
   const tableFieldEnabled = canUseFeature('tableField');
@@ -63,6 +65,14 @@ export function WaiterScreen({ navigation }: Props) {
     if (tenant?.tenantId?.includes('lanchonete')) return MENU_LANCHONETE;
     return MENU_GENERICO;
   }, [tenant?.tenantId]);
+
+  const qtyMap = useMemo(() => {
+    const map: Record<string, number> = {};
+    for (const item of items) {
+      map[item.barcode] = Number((map[item.barcode] || 0) + Number(item.quantity || 0));
+    }
+    return map;
+  }, [items]);
 
   const loadFavorites = useCallback(() => {
     if (!tenant?.tenantId || !favoritesEnabled) {
@@ -132,10 +142,12 @@ export function WaiterScreen({ navigation }: Props) {
     setLastAction('Contexto aplicado.');
   };
 
-  const addMenuItem = async (item: MenuItem) => {
-    addByProduct(item);
+  const addMenuItem = async (item: MenuItem, qty = 1) => {
+    for (let i = 0; i < qty; i += 1) {
+      addByProduct(item);
+    }
     await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    setLastAction(`${item.name} adicionado.`);
+    setLastAction(`${item.name} x${qty} adicionado.`);
   };
 
   const onToggleFavorite = (barcode: string) => {
@@ -173,182 +185,231 @@ export function WaiterScreen({ navigation }: Props) {
   }
 
   return (
-    <ScrollView style={styles.screen} contentContainerStyle={{ paddingBottom: 16 }}>
+    <ScrollView style={styles.screen} contentContainerStyle={styles.screenScroll} keyboardShouldPersistTaps="handled">
       <Text style={styles.title}>{uiProfile.tableModeLabel}</Text>
-      <Text style={styles.subtitle}>Fluxo sem câmera | {uiProfile.serviceRoleLabel}: {operator?.name || '-'} | Tenant: {tenant?.tenantId || '-'}</Text>
+      <Text style={styles.subtitle}>Fluxo sem camera | {uiProfile.serviceRoleLabel}: {operator?.name || '-'} | Tenant: {tenant?.tenantId || '-'}</Text>
 
-      <View style={styles.kpiRow}>
-        <View style={styles.kpiCard}>
-          <Text style={styles.kpiLabel}>{tableFieldEnabled ? uiProfile.tableLabel : 'Atendimento'}</Text>
-          <Text style={styles.kpiValue}>{tableFieldEnabled ? tableId || '-' : 'Balcão'}</Text>
+      <Reveal delay={20}>
+        <View style={styles.kpiRow}>
+          <View style={styles.kpiCard}>
+            <Text style={styles.kpiLabel}>{tableFieldEnabled ? uiProfile.tableLabel : 'Atendimento'}</Text>
+            <Text style={styles.kpiValue}>{tableFieldEnabled ? tableId || '-' : 'Balcao'}</Text>
+          </View>
+          <View style={styles.kpiCard}>
+            <Text style={styles.kpiLabel}>Itens na comanda</Text>
+            <Text style={styles.kpiValue}>{items.length}</Text>
+          </View>
+          <View style={styles.kpiCard}>
+            <Text style={styles.kpiLabel}>Total parcial</Text>
+            <Text style={styles.kpiValue}>R$ {total().toFixed(2)}</Text>
+          </View>
         </View>
-        <View style={styles.kpiCard}>
-          <Text style={styles.kpiLabel}>Total parcial</Text>
-          <Text style={styles.kpiValue}>R$ {total().toFixed(2)}</Text>
-        </View>
-      </View>
+      </Reveal>
 
       {lastAction ? (
-        <View style={[styles.badge, styles.badgeOk]}>
-          <Text style={styles.badgeText}>{lastAction}</Text>
-        </View>
+        <Reveal delay={40}>
+          <View style={[styles.badge, styles.badgeOk]}>
+            <Text style={styles.badgeText}>{lastAction}</Text>
+          </View>
+        </Reveal>
       ) : null}
 
-      <View style={styles.panel}>
-        <Text style={styles.sectionTitle}>Contexto de atendimento</Text>
-        {tableFieldEnabled ? (
-          <TextInput
-            style={[styles.input, { marginBottom: 8 }]}
-            value={tableId}
-            onChangeText={setTableId}
-            placeholder={uiProfile.tableLabel}
-            placeholderTextColor="#7f95b7"
-          />
-        ) : (
-          <Text style={{ color: '#aac0df', marginBottom: 8 }}>Identificador de mesa/comanda desativado para este cliente.</Text>
-        )}
+      <Reveal delay={60}>
+        <View style={styles.panel}>
+          <Text style={styles.sectionTitle}>Contexto de atendimento</Text>
+          {tableFieldEnabled ? (
+            <TextInput
+              style={[styles.input, { marginBottom: 8 }]}
+              value={tableId}
+              onChangeText={setTableId}
+              placeholder={uiProfile.tableLabel}
+              placeholderTextColor="#7f95b7"
+            />
+          ) : (
+            <Text style={{ color: '#aac0df', marginBottom: 8 }}>Identificador de mesa/comanda desativado para este cliente.</Text>
+          )}
 
-        {kitchenEnabled ? (
-          <>
-            <Text style={{ color: '#aac0df', marginBottom: 8 }}>Sincronização de rotas</Text>
-            <View style={styles.panel}>
-              <Text style={{ color: '#d9e8ff', marginBottom: 4 }}>Conta: <Text style={{ color: '#86efac', fontWeight: '700' }}>sempre enviada para o Caixa</Text></Text>
-              <Text style={{ color: '#d9e8ff' }}>Produção: {enableKitchenProduction ? 'enviar também para Cozinha' : 'não enviar para Cozinha'}</Text>
-            </View>
-            <TouchableOpacity
-              style={[styles.button, enableKitchenProduction ? styles.buttonOk : styles.buttonWarn, { marginBottom: 8 }]}
-              onPress={() => setEnableKitchenProduction((value) => !value)}
-            >
-              <Text style={styles.buttonText}>{enableKitchenProduction ? 'Cozinha ativada' : 'Cozinha desativada'}</Text>
-            </TouchableOpacity>
-          </>
-        ) : (
-          <Text style={{ color: '#aac0df', marginBottom: 8 }}>Envio para cozinha desativado para este cliente.</Text>
-        )}
-
-        <TouchableOpacity style={[styles.button, styles.buttonWarn]} onPress={applyContext}>
-          <Text style={styles.buttonText}>Aplicar contexto</Text>
-        </TouchableOpacity>
-      </View>
-
-      <View style={styles.panel}>
-        <Text style={styles.sectionTitle}>Cardápio / Produtos</Text>
-        <TextInput
-          style={styles.input}
-          value={search}
-          onChangeText={setSearch}
-          placeholder="Buscar item por nome"
-          placeholderTextColor="#7f95b7"
-        />
-
-        <View style={{ flexDirection: 'row', gap: 8, marginBottom: 10 }}>
-          {allowedViews.includes('all') ? (
-            <TouchableOpacity style={[styles.chip, viewMode === 'all' ? styles.chipActive : undefined]} onPress={() => setViewMode('all')}>
-              <Text style={styles.chipText}>Todos</Text>
-            </TouchableOpacity>
-          ) : null}
-          {allowedViews.includes('favorites') ? (
-            <TouchableOpacity style={[styles.chip, viewMode === 'favorites' ? styles.chipActive : undefined]} onPress={() => setViewMode('favorites')}>
-              <Text style={styles.chipText}>Favoritos</Text>
-            </TouchableOpacity>
-          ) : null}
-          {allowedViews.includes('top') ? (
-            <TouchableOpacity style={[styles.chip, viewMode === 'top' ? styles.chipActive : undefined]} onPress={() => setViewMode('top')}>
-              <Text style={styles.chipText}>Mais vendidos</Text>
-            </TouchableOpacity>
-          ) : null}
-        </View>
-
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 10 }}>
-          <View style={{ flexDirection: 'row', gap: 8 }}>
-            {categories.map((category) => (
+          {kitchenEnabled ? (
+            <>
+              <Text style={{ color: '#aac0df', marginBottom: 8 }}>Sincronizacao de rotas</Text>
+              <View style={styles.panel}>
+                <Text style={{ color: '#d9e8ff', marginBottom: 4 }}>Conta: <Text style={{ color: '#86efac', fontWeight: '700' }}>sempre enviada para o Caixa</Text></Text>
+                <Text style={{ color: '#d9e8ff' }}>Producao: {enableKitchenProduction ? 'enviar tambem para Cozinha' : 'nao enviar para Cozinha'}</Text>
+              </View>
               <TouchableOpacity
-                key={category}
-                style={[styles.chip, activeCategory === category ? styles.chipActive : undefined]}
-                onPress={() => setActiveCategory(category)}
+                style={[styles.button, enableKitchenProduction ? styles.buttonOk : styles.buttonWarn, { marginBottom: 8 }]}
+                onPress={() => setEnableKitchenProduction((value) => !value)}
               >
-                <Text style={styles.chipText}>{category}</Text>
+                <Text style={styles.buttonText}>{enableKitchenProduction ? 'Cozinha ativada' : 'Cozinha desativada'}</Text>
               </TouchableOpacity>
-            ))}
-          </View>
-        </ScrollView>
+            </>
+          ) : (
+            <Text style={{ color: '#aac0df', marginBottom: 8 }}>Envio para cozinha desativado para este cliente.</Text>
+          )}
 
-        {!filteredMenu.length ? (
+          <TouchableOpacity style={[styles.button, styles.buttonWarn]} onPress={applyContext}>
+            <Text style={styles.buttonText}>Aplicar contexto</Text>
+          </TouchableOpacity>
+        </View>
+      </Reveal>
+
+      <Reveal delay={90}>
+        <View style={styles.panel}>
+          <Text style={styles.sectionTitle}>Cardapio / Produtos</Text>
+          <View style={styles.row}>
+            <TextInput
+              style={[styles.input, { flex: 1, marginBottom: 10 }]}
+              value={search}
+              onChangeText={setSearch}
+              placeholder="Buscar item por nome"
+              placeholderTextColor="#7f95b7"
+            />
+            {search ? (
+              <TouchableOpacity style={[styles.button, styles.buttonGhost, { marginBottom: 10 }]} onPress={() => setSearch('')}>
+                <Text style={styles.buttonText}>Limpar</Text>
+              </TouchableOpacity>
+            ) : null}
+          </View>
+
+          <View style={{ flexDirection: 'row', gap: 8, marginBottom: 10 }}>
+            {allowedViews.includes('all') ? (
+              <TouchableOpacity style={[styles.chip, viewMode === 'all' ? styles.chipActive : undefined]} onPress={() => setViewMode('all')}>
+                <Text style={styles.chipText}>Todos</Text>
+              </TouchableOpacity>
+            ) : null}
+            {allowedViews.includes('favorites') ? (
+              <TouchableOpacity style={[styles.chip, viewMode === 'favorites' ? styles.chipActive : undefined]} onPress={() => setViewMode('favorites')}>
+                <Text style={styles.chipText}>Favoritos</Text>
+              </TouchableOpacity>
+            ) : null}
+            {allowedViews.includes('top') ? (
+              <TouchableOpacity style={[styles.chip, viewMode === 'top' ? styles.chipActive : undefined]} onPress={() => setViewMode('top')}>
+                <Text style={styles.chipText}>Mais vendidos</Text>
+              </TouchableOpacity>
+            ) : null}
+          </View>
+
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 10 }}>
+            <View style={{ flexDirection: 'row', gap: 8 }}>
+              {categories.map((category) => (
+                <TouchableOpacity
+                  key={category}
+                  style={[styles.chip, activeCategory === category ? styles.chipActive : undefined]}
+                  onPress={() => setActiveCategory(category)}
+                >
+                  <Text style={styles.chipText}>{category}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </ScrollView>
+
+          {!filteredMenu.length ? (
+            <View style={styles.emptyBox}>
+              <Text style={{ color: '#aac0df' }}>Nenhum item encontrado com esse filtro.</Text>
+            </View>
+          ) : null}
+
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between' }}>
+            {filteredMenu.map((item) => {
+              const isFavorite = favoriteBarcodes.includes(item.barcode);
+              const isTop = topSellingBarcodes.includes(item.barcode);
+              const qtyInComanda = qtyMap[item.barcode] || 0;
+
+              return (
+                <View key={item.productId} style={[styles.panel, { width: '48%' }]}>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 4 }}>
+                    <Text style={{ color: '#edf4ff', fontWeight: '700', flex: 1 }}>{item.name}</Text>
+                    {favoritesEnabled ? (
+                      <TouchableOpacity onPress={() => onToggleFavorite(item.barcode)} style={{ marginLeft: 6 }}>
+                        <Text style={{ color: isFavorite ? '#ffd66b' : '#aac0df', fontSize: 18 }}>{isFavorite ? '★' : '☆'}</Text>
+                      </TouchableOpacity>
+                    ) : null}
+                  </View>
+
+                  {topEnabled && isTop ? (
+                    <View style={[styles.badge, styles.badgeInfo, { marginBottom: 6 }]}>
+                      <Text style={styles.badgeText}>Mais vendido</Text>
+                    </View>
+                  ) : null}
+
+                  {qtyInComanda > 0 ? (
+                    <View style={[styles.badge, styles.badgeOk, { marginBottom: 6 }]}>
+                      <Text style={styles.badgeText}>Na comanda: {qtyInComanda}</Text>
+                    </View>
+                  ) : null}
+
+                  <Text style={{ color: '#aac0df', fontSize: 12, marginBottom: 6 }}>{item.description}</Text>
+                  <Text style={{ color: '#86efac', fontWeight: '700', marginBottom: 8 }}>R$ {item.unitPrice.toFixed(2)}</Text>
+
+                  <View style={styles.row}>
+                    <TouchableOpacity style={[styles.button, styles.buttonOk, { flex: 1 }]} onPress={() => addMenuItem(item, 1)}>
+                      <Text style={styles.buttonText}>+1</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={[styles.button, styles.buttonGhost, { flex: 1 }]} onPress={() => addMenuItem(item, 2)}>
+                      <Text style={styles.buttonText}>+2</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              );
+            })}
+          </View>
+        </View>
+      </Reveal>
+
+      <Reveal delay={120}>
+        <Text style={[styles.subtitle, { marginTop: 4 }]}>Itens na comanda ({items.length})</Text>
+
+        {!items.length ? (
           <View style={styles.emptyBox}>
-            <Text style={{ color: '#aac0df' }}>Nenhum item encontrado com esse filtro.</Text>
+            <Text style={{ color: '#aac0df' }}>Nenhum item adicionado ainda.</Text>
           </View>
         ) : null}
 
-        <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between' }}>
-          {filteredMenu.map((item) => {
-            const isFavorite = favoriteBarcodes.includes(item.barcode);
-            const isTop = topSellingBarcodes.includes(item.barcode);
-
-            return (
-              <View key={item.productId} style={[styles.panel, { width: '48%' }]}>
-                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 4 }}>
-                  <Text style={{ color: '#edf4ff', fontWeight: '700', flex: 1 }}>{item.name}</Text>
-                  {favoritesEnabled ? (
-                    <TouchableOpacity onPress={() => onToggleFavorite(item.barcode)} style={{ marginLeft: 6 }}>
-                      <Text style={{ color: isFavorite ? '#ffd66b' : '#aac0df', fontSize: 18 }}>{isFavorite ? '★' : '☆'}</Text>
-                    </TouchableOpacity>
-                  ) : null}
-                </View>
-
-                {topEnabled && isTop ? (
-                  <View style={[styles.badge, styles.badgeInfo, { marginBottom: 6 }]}>
-                    <Text style={styles.badgeText}>Mais vendido</Text>
-                  </View>
-                ) : null}
-
-                <Text style={{ color: '#aac0df', fontSize: 12, marginBottom: 6 }}>{item.description}</Text>
-                <Text style={{ color: '#86efac', fontWeight: '700', marginBottom: 8 }}>R$ {item.unitPrice.toFixed(2)}</Text>
-                <TouchableOpacity style={[styles.button, styles.buttonOk]} onPress={() => addMenuItem(item)}>
-                  <Text style={styles.buttonText}>Adicionar</Text>
+        {items.map((item) => (
+          <View key={item.barcode} style={styles.panel}>
+            <Text style={{ color: '#edf4ff', fontWeight: '700' }}>{item.name}</Text>
+            <View style={[styles.row, { marginTop: 6, justifyContent: 'space-between' }]}>
+              <View style={styles.row}>
+                <TouchableOpacity style={[styles.button, styles.qtyButton]} onPress={() => updateQty(item.barcode, -1)}><Text style={styles.buttonText}>-</Text></TouchableOpacity>
+                <Text style={{ color: '#fff', minWidth: 34, textAlign: 'center', fontWeight: '700' }}>{item.quantity}</Text>
+                <TouchableOpacity style={[styles.button, styles.qtyButton]} onPress={() => updateQty(item.barcode, 1)}><Text style={styles.buttonText}>+</Text></TouchableOpacity>
+              </View>
+              <View style={[styles.row, { gap: 6 }]}>
+                <Text style={{ color: '#86efac', fontWeight: '700' }}>R$ {item.subtotal.toFixed(2)}</Text>
+                <TouchableOpacity style={[styles.button, styles.buttonDanger]} onPress={() => removeItem(item.barcode)}>
+                  <Text style={styles.buttonText}>X</Text>
                 </TouchableOpacity>
               </View>
-            );
-          })}
-        </View>
-      </View>
-
-      <Text style={[styles.subtitle, { marginTop: 4 }]}>Itens na comanda ({items.length})</Text>
-      {!items.length ? (
-        <View style={styles.emptyBox}>
-          <Text style={{ color: '#aac0df' }}>Nenhum item adicionado ainda.</Text>
-        </View>
-      ) : null}
-
-      {items.map((item) => (
-        <View key={item.barcode} style={styles.panel}>
-          <Text style={{ color: '#edf4ff', fontWeight: '700' }}>{item.name}</Text>
-          <View style={[styles.row, { marginTop: 6, justifyContent: 'space-between' }]}>
-            <View style={styles.row}>
-              <TouchableOpacity style={[styles.button, { paddingHorizontal: 10 }]} onPress={() => updateQty(item.barcode, -1)}><Text style={styles.buttonText}>-</Text></TouchableOpacity>
-              <Text style={{ color: '#fff', minWidth: 30, textAlign: 'center' }}>{item.quantity}</Text>
-              <TouchableOpacity style={[styles.button, { paddingHorizontal: 10 }]} onPress={() => updateQty(item.barcode, 1)}><Text style={styles.buttonText}>+</Text></TouchableOpacity>
-            </View>
-            <View style={[styles.row, { gap: 6 }]}> 
-              <Text style={{ color: '#86efac', fontWeight: '700' }}>R$ {item.subtotal.toFixed(2)}</Text>
-              <TouchableOpacity style={[styles.button, styles.buttonDanger]} onPress={() => removeItem(item.barcode)}>
-                <Text style={styles.buttonText}>X</Text>
-              </TouchableOpacity>
             </View>
           </View>
-        </View>
-      ))}
+        ))}
+      </Reveal>
 
-      <View style={styles.ctaBar}>
-        <TouchableOpacity style={[styles.button, styles.buttonOk, { marginBottom: 8 }]} onPress={() => { applyContext(); navigation.navigate('Review'); }}>
-          <Text style={styles.buttonText}>Revisar e enviar (R$ {total().toFixed(2)})</Text>
-        </TouchableOpacity>
-        {closeEnabled ? (
-          <TouchableOpacity style={[styles.button, styles.buttonWarn]} onPress={() => { applyContext(); navigation.navigate('CloseTable'); }}>
-            <Text style={styles.buttonText}>Fechar {uiProfile.tableLabel.toLowerCase()}</Text>
-          </TouchableOpacity>
-        ) : null}
-      </View>
+      <Reveal delay={150}>
+        <View style={styles.ctaBar}>
+          <View style={styles.actionRow}>
+            <TouchableOpacity
+              style={[styles.button, styles.buttonDanger, { flex: 1, opacity: items.length ? 1 : 0.55 }]}
+              disabled={!items.length}
+              onPress={() => {
+                clearItems();
+                setLastAction('Comanda limpa para novo atendimento.');
+              }}
+            >
+              <Text style={styles.buttonText}>Limpar comanda</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={[styles.button, styles.buttonOk, { flex: 1 }]} onPress={() => { applyContext(); navigation.navigate('Review'); }}>
+              <Text style={styles.buttonText}>Revisar e enviar</Text>
+            </TouchableOpacity>
+          </View>
+
+          {closeEnabled ? (
+            <TouchableOpacity style={[styles.button, styles.buttonWarn]} onPress={() => { applyContext(); navigation.navigate('CloseTable'); }}>
+              <Text style={styles.buttonText}>Fechar {uiProfile.tableLabel.toLowerCase()}</Text>
+            </TouchableOpacity>
+          ) : null}
+        </View>
+      </Reveal>
     </ScrollView>
   );
 }
-
