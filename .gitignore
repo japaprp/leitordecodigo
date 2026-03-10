@@ -39,3 +39,7 @@ yarn-error.*
 # generated native folders
 /ios
 /android
+
+# local run logs
+expo-run.log
+AMORIMLEITORCODE.png
