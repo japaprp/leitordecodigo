@@ -16,11 +16,6 @@ Cada cliente opera isolado por `tenant_id` + `license_key`.
 - Historico e fila offline separados por tenant no SQLite.
 - Payload com `tenantId` e `clientOrderId` (idempotencia).
 
-Credenciais demo:
-
-- `lanchonete_demo` + `LANCH-2026` (scanner + comanda)
-- `hortfruit_demo` + `HORT-2026` (scanner ativo, comanda bloqueada)
-
 ## Stack
 
 - React Native (Expo)
@@ -49,51 +44,104 @@ Funcoes prontas:
 - `addScannedItemsToCart(cartId, items, params)`
 - `loadCheckoutSummary(cartId, params)`
 
-O que esse bridge resolve:
+O bridge permite busca por codigo de barras/QR/SKU/ID e envio ao carrinho com `x-cart-id`, incluindo quantidade decimal para cenarios de venda por peso.
 
-- Busca produto por codigo de barras, QR, ID interno, SKU, `id` e `q`.
-- Envio para `/carrinho` com `x-cart-id`.
-- Leitura de `/checkout` para total em tempo real.
-- Fallback quando nao existe barcode/QR (usa ID/codigo interno/nome).
-- Quantidade com decimal para cenarios `kg`.
+## Fluxo funcional
 
-Exemplo rapido:
+1. Login do operador.
+2. Escolha de loja/caixa/sessao.
+3. Escolha do modo.
+4. Leitura por camera ou codigo manual.
+5. Revisao.
+6. Envio para sistema.
+7. Se offline: fila local + sincronizacao depois.
 
-```ts
-import {
-  lookupProductByAnyCode,
-  addScannedItemsToCart,
-  loadCheckoutSummary,
-} from './src/integrations/http/varejaoBridge';
+---
 
-const params = {
-  baseUrl: 'https://varejao-backend-1.onrender.com',
-  productEndpoint: '/produtos',
-  cartEndpoint: '/carrinho',
-  checkoutEndpoint: '/checkout',
-  timeoutMs: 10000,
-};
+# Roadmap de producao real
 
-const product = await lookupProductByAnyCode('7898632473278', params);
+## 1. Scanner e operacao de caixa
 
-if (product) {
-  await addScannedItemsToCart('caixa-01', [
-    {
-      barcode: product.barcode,
-      productId: product.productId,
-      name: product.name,
-      unitPrice: product.unitPrice,
-      quantity: 0.5,
-      subtotal: product.unitPrice * 0.5,
-    },
-  ], params);
+- [ ] Testar leitura em dispositivos Android reais e em diferentes condicoes de luz
+- [ ] Tratar camera indisponivel/permissao negada
+- [ ] Evitar leitura duplicada acidental
+- [ ] Feedback de produto encontrado/nao encontrado
+- [ ] Suportar quantidade e itens pesaveis sem inconsistencias
+- [ ] Confirmacao antes de operacoes irreversiveis
 
-  const checkout = await loadCheckoutSummary('caixa-01', params);
-  console.log(checkout.total);
-}
-```
+## 2. Offline-first e sincronizacao
 
-## Rodar (Android)
+- [ ] Definir estados da fila: pendente -> enviando -> confirmado -> falhou
+- [ ] Retry com backoff seguro
+- [ ] Idempotencia ponta a ponta com `clientOrderId`
+- [ ] Evitar envio duplicado apos queda de internet
+- [ ] Resolver conflitos de estoque/preco de forma explicita
+- [ ] Limpeza segura da fila apos confirmacao
+- [ ] Testar perda de internet durante envio
+- [ ] Testar fechamento/reabertura do app com fila pendente
+
+## 3. Integracao com PDV
+
+- [ ] Contrato de API versionado
+- [ ] Timeouts definidos
+- [ ] Tratamento de 4xx/5xx
+- [ ] Autenticacao segura do dispositivo/operador
+- [ ] Nunca confiar em `tenantId` vindo apenas do cliente
+- [ ] Testar Varejao e demais adapters reais
+- [ ] Testar incompatibilidade de versao da API
+
+## 4. Multi-tenant e licenca
+
+- [ ] Testar isolamento completo entre tenants
+- [ ] Revisar `license_key` e ciclo de vida da licenca
+- [ ] Impedir acesso a dados de outro cliente
+- [ ] Revogacao/expiracao de licenca
+- [ ] Armazenamento seguro de credenciais e tokens
+- [ ] Logs sem tokens/PII desnecessaria
+
+## 5. Seguranca mobile
+
+- [ ] Revisar armazenamento local de dados
+- [ ] Proteger dados sensiveis em SQLite
+- [ ] Validar TLS/HTTPS em producao
+- [ ] Evitar segredos embutidos no bundle
+- [ ] Revisar deep links e intents quando aplicavel
+- [ ] Tratar permissao de camera de forma segura
+
+## 6. Testes
+
+- [ ] Testes unitarios das regras do store
+- [ ] Testes da fila offline
+- [ ] Testes de idempotencia
+- [ ] Testes de integracao com adapter
+- [ ] Testes de erro/retry
+- [ ] Testes de regressao
+- [ ] Teste em aparelhos Android reais
+- [ ] Teste com conexao instavel
+
+## 7. Performance e diagnostico
+
+- [ ] Medir tempo de leitura e resposta da API
+- [ ] Evitar bloqueio da UI durante sincronizacao
+- [ ] Limitar tamanho da fila local
+- [ ] Logs tecnicos para diagnostico sem dados sensiveis
+- [ ] Tela/rotina de diagnostico para suporte
+
+## 8. Distribuicao comercial
+
+- [ ] Build de release assinado
+- [ ] Configurar identificador e versao
+- [ ] Politica de atualizacao
+- [ ] Mecanismo seguro de configuracao do endpoint
+- [ ] Onboarding do operador
+- [ ] Manual rapido
+- [ ] Checklist de homologacao por PDV
+
+## Criterio de pronto
+
+O LeitorCodigo so deve ser vendido como modulo pronto quando conseguir operar **leitura -> carrinho/comanda -> envio -> confirmacao -> recuperacao de falha** de forma confiavel, inclusive com internet instavel, sem duplicar operacoes ou misturar dados entre clientes.
+
+## Rodar Android
 
 ```bash
 npm install
@@ -106,17 +154,6 @@ No celular:
 - Estar na mesma rede do PC.
 - Escanear o QR do terminal.
 
-## Fluxo funcional
+## Regra de continuidade
 
-1. Login do operador.
-2. Escolha de loja/caixa/sessao.
-3. Escolha do modo.
-4. Leitura por camera ou codigo manual.
-5. Revisao.
-6. Envio para sistema.
-7. Se offline: fila local + sincronizacao depois.
-
-## Observacoes
-
-- O adapter agora ja conversa com API REST quando configurada.
-- Se a API cair, o app continua com fila offline.
+Priorizar **integridade offline/sincronizacao -> seguranca -> integracao -> testes -> dispositivos reais -> diagnostico -> distribuicao comercial** antes de adicionar novos modos.
