@@ -78,6 +78,66 @@ interface AppState {
   logout: () => void;
 }
 
+const activeSyncs = new Map<string, Promise<SyncSummary>>();
+
+async function syncQueuedOrders(
+  tenantId: string,
+  forceOffline: boolean,
+  updateState: (patch: Partial<AppState>) => void,
+): Promise<SyncSummary> {
+  const queue = listQueue(tenantId);
+  if (!queue.length) {
+    updateState({ pendingCount: 0, syncState: 'idle' });
+    return { synced: 0, duplicates: 0, failed: 0 };
+  }
+
+  updateState({ syncState: 'syncing' });
+  const adapter = new MockPdvAdapter(forceOffline);
+  let synced = 0;
+  let duplicates = 0;
+  let failed = 0;
+
+  for (const row of queue) {
+    try {
+      const payload: OrderPayload = JSON.parse(row.payload);
+
+      const alreadyDone = await adapter.findProcessedAction(tenantId, payload.clientOrderId);
+      if (alreadyDone) {
+        saveHistory(tenantId, payload.orderType, payload, 'sent', alreadyDone.externalId);
+        removeFromQueue(row.id);
+        duplicates += 1;
+        continue;
+      }
+
+      const result = await adapter.sendOrder(payload);
+      if (result.success) {
+        saveHistory(tenantId, payload.orderType, payload, 'sent', result.externalId);
+        removeFromQueue(row.id);
+        if (isDuplicateResult(result)) {
+          duplicates += 1;
+        } else {
+          synced += 1;
+        }
+      } else {
+        incrementAttempts(row.id);
+        failed += 1;
+      }
+    } catch {
+      incrementAttempts(row.id);
+      failed += 1;
+    }
+  }
+
+  const pending = getPendingCount(tenantId);
+  updateState({
+    pendingCount: pending,
+    syncState: pending > 0 ? 'offline' : 'idle',
+    lastSyncAt: new Date().toISOString(),
+  });
+
+  return { synced, duplicates, failed };
+}
+
 function uid() {
   return `${Date.now()}-${Math.random().toString(16).slice(2, 10)}`;
 }
@@ -648,60 +708,25 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   syncPending: async () => {
-    const tenantId = get().tenant?.tenantId;
-    if (!tenantId) return { synced: 0, duplicates: 0, failed: 0 };
+    const { tenant, forceOffline } = get();
+    if (!tenant) return { synced: 0, duplicates: 0, failed: 0 };
 
-    const queue = listQueue(tenantId);
-    if (!queue.length) {
-      set({ pendingCount: 0, syncState: 'idle' });
-      return { synced: 0, duplicates: 0, failed: 0 };
-    }
+    const { tenantId } = tenant;
+    const active = activeSyncs.get(tenantId);
+    if (active) return active;
 
-    set({ syncState: 'syncing' });
-    const adapter = new MockPdvAdapter(get().forceOffline);
-    let synced = 0;
-    let duplicates = 0;
-    let failed = 0;
-
-    for (const row of queue) {
-      try {
-        const payload: OrderPayload = JSON.parse(row.payload);
-
-        const alreadyDone = await adapter.findProcessedAction(tenantId, payload.clientOrderId);
-        if (alreadyDone) {
-          saveHistory(tenantId, payload.orderType, payload, 'sent', alreadyDone.externalId);
-          removeFromQueue(row.id);
-          duplicates += 1;
-          continue;
-        }
-
-        const result = await adapter.sendOrder(payload);
-        if (result.success) {
-          saveHistory(tenantId, payload.orderType, payload, 'sent', result.externalId);
-          removeFromQueue(row.id);
-          if (isDuplicateResult(result)) {
-            duplicates += 1;
-          } else {
-            synced += 1;
-          }
-        } else {
-          incrementAttempts(row.id);
-          failed += 1;
-        }
-      } catch {
-        incrementAttempts(row.id);
-        failed += 1;
-      }
-    }
-
-    const pending = getPendingCount(tenantId);
-    set({
-      pendingCount: pending,
-      syncState: pending > 0 ? 'offline' : 'idle',
-      lastSyncAt: new Date().toISOString(),
-    });
-
-    return { synced, duplicates, failed };
+    const updateState = (patch: Partial<AppState>) => {
+      if (get().tenant?.tenantId === tenantId) set(patch);
+    };
+    const operation = Promise.resolve()
+      .then(() => syncQueuedOrders(tenantId, forceOffline, updateState))
+      .catch(error => {
+        updateState({ syncState: 'error' });
+        throw error;
+      })
+      .finally(() => activeSyncs.delete(tenantId));
+    activeSyncs.set(tenantId, operation);
+    return operation;
   },
 }));
 
