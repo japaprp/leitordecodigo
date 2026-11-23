@@ -46,6 +46,8 @@ Funcoes prontas:
 
 O bridge permite busca por codigo de barras/QR/SKU/ID e envio ao carrinho com `x-cart-id`, incluindo quantidade decimal para cenarios de venda por peso.
 
+Para integrar com uma versao do Hortifruit que suporte reenvio de pedidos operacionais, configure a URL base HTTPS do servidor, `/operacao/pedidos/sincronizar` no campo de envio e o token Bearer de um operador autorizado no Hortifruit. Valide em sandbox com a fila anterior sincronizada antes de trocar o endpoint em uso. O Hortifruit registra o pedido uma vez e encaminha os itens usando o cadastro de produtos. Contagem de estoque e fechamento de comanda sao feitos no Hortifruit nesse modo.
+
 ## Fluxo funcional
 
 1. Login do operador.
