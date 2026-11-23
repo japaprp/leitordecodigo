@@ -6,6 +6,7 @@ import { styles } from '../../core/theme';
 import { useAppStore } from '../../core/store';
 import { AdminTenantConfig, IntegrationAuthType, IntegrationConfig, IntegrationEnvironment, ModuleToggles } from '../../core/types/models';
 import { defaultIntegrationConfig, listAdminTenantConfigs, saveAdminTenantConfig } from '../../data/storage/localDb';
+import { isVarejaoOperationalOrderEndpoint } from '../../integrations/adapters/mockPdvAdapter';
 
 const MODULES: Array<{ key: keyof ModuleToggles; label: string }> = [
   { key: 'scanner', label: 'Scanner' },
@@ -673,7 +674,7 @@ export function AdminDashboardScreen() {
             id: args.id,
             label: args.label,
             kind: 'warn',
-            text: 'Pedido de teste retornou 409 (duplicado/processado).',
+            text: 'Pedido de teste retornou conflito (409).',
             durationMs,
           });
           return;
@@ -721,7 +722,15 @@ export function AdminDashboardScreen() {
       const clientOrderId = 'test-' + Date.now();
       const sendPath = applyEndpointTokens(cfg.endpoints.sendOrder || '', { clientOrderId: clientOrderId });
       const sendUrl = joinUrl(baseUrl, sendPath);
-      if (sendUrl) {
+      if (isVarejaoOperationalOrderEndpoint(sendPath)) {
+        checks.push({
+          id: 'order',
+          label: 'Envio de pedido Hortifruit',
+          kind: 'info',
+          text: 'Use o ambiente de teste do Hortifruit para validar o fluxo completo de um pedido.',
+          durationMs: 0,
+        });
+      } else if (sendUrl) {
         const normalizedSendPath = (sendPath || '').toLowerCase();
         const isCartEndpoint = normalizedSendPath.includes('/carrinho');
 

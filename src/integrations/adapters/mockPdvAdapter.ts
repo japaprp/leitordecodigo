@@ -208,6 +208,10 @@ function resolveUrl(baseUrl: string, endpoint: string) {
   return path.startsWith('/') ? `${base}${path}` : `${base}/${path}`;
 }
 
+export function isVarejaoOperationalOrderEndpoint(endpoint: string) {
+  return /^(?:https?:\/\/[^/?#]+)?\/?operacao\/pedidos\/sincronizar\/?(?:[?#].*)?$/i.test(endpoint.trim());
+}
+
 function applyTokens(path: string, values: Record<string, string>) {
   let result = path;
   for (const [key, value] of Object.entries(values)) {
@@ -394,6 +398,10 @@ function integrationEnabled(profile: TenantProfile) {
   return cfg.enabled && !!getActiveBaseUrl(cfg);
 }
 
+function usesOperationalOrders(cfg: IntegrationConfig) {
+  return cfg.enabled && isVarejaoOperationalOrderEndpoint(cfg.endpoints.sendOrder);
+}
+
 export class MockPdvAdapter implements PdvAdapter {
   constructor(private forceOffline = false) {}
 
@@ -483,6 +491,8 @@ export class MockPdvAdapter implements PdvAdapter {
     const resolvedTenantId = resolveTenantId(tenantId, profiles) || tenantId;
     const profile = profiles[resolvedTenantId];
 
+    if (profile && usesOperationalOrders(profile.integrationConfig)) return null;
+
     if (profile && integrationEnabled(profile)) {
       const cfg = profile.integrationConfig;
       const endpoint = applyTokens(cfg.endpoints.orderStatus, {
@@ -512,6 +522,12 @@ export class MockPdvAdapter implements PdvAdapter {
     return externalId ? { externalId } : null;
   }
 
+  usesVarejaoOperationalOrders(tenantId: string) {
+    const profiles = buildTenantProfiles();
+    const profile = profiles[resolveTenantId(tenantId, profiles) || tenantId];
+    return !!profile && usesOperationalOrders(profile.integrationConfig);
+  }
+
   async sendOrder(payload: OrderPayload): Promise<SendResult> {
     await this.delay(180);
 
@@ -536,8 +552,10 @@ export class MockPdvAdapter implements PdvAdapter {
       return { success: false, message: 'Sem itens para envio.' };
     }
 
+    const cfg = profile.integrationConfig;
+    const operationalOrder = usesOperationalOrders(cfg);
     const bucket = getProcessedBucket(profile.tenantId);
-    const existingExternalId = bucket[payload.clientOrderId];
+    const existingExternalId = operationalOrder ? undefined : bucket[payload.clientOrderId];
     if (existingExternalId) {
       return {
         success: true,
@@ -547,8 +565,7 @@ export class MockPdvAdapter implements PdvAdapter {
       };
     }
 
-    if (integrationEnabled(profile)) {
-      const cfg = profile.integrationConfig;
+    if (integrationEnabled(profile) || operationalOrder) {
       const endpoint = applyTokens(cfg.endpoints.sendOrder, {
         clientOrderId: payload.clientOrderId,
       });
@@ -560,6 +577,30 @@ export class MockPdvAdapter implements PdvAdapter {
 
       const normalizedEndpoint = endpoint.toLowerCase();
       const isVarejaoCartEndpoint = normalizedEndpoint.includes('/carrinho');
+      let body: object = payload;
+
+      if (operationalOrder) {
+        if (payload.orderType === 'stock' || payload.eventType === 'stock_count' ||
+            payload.eventType === 'table_close' || payload.dispatchTarget === 'kitchen') {
+          return { success: false, message: 'Este endpoint recebe pedidos de venda e comandas pelo caixa.' };
+        }
+
+        const baseUrl = getActiveBaseUrl(cfg);
+        const secureBase = /^https:\/\/[a-z\d.-]+(?::\d+)?$/i.test(baseUrl) ||
+          /^http:\/\/(?:localhost|127\.0\.0\.1)(?::\d+)?$/i.test(baseUrl);
+        if (!secureBase || url.replace(/\/$/, '') !== `${baseUrl}/operacao/pedidos/sincronizar`) {
+          return { success: false, message: 'Configure /operacao/pedidos/sincronizar na URL base do Hortifruit em HTTPS.' };
+        }
+        if (cfg.authType !== 'bearer' || !cfg.bearerToken?.trim()) {
+          return { success: false, message: 'Informe o token do operador do Hortifruit.' };
+        }
+
+        body = {
+          clientOrderId: payload.clientOrderId,
+          tableId: payload.tableId,
+          items: payload.items.map((item) => ({ produtoId: item.productId, quantidade: item.quantity })),
+        };
+      }
 
       try {
         if (isVarejaoCartEndpoint) {
@@ -582,7 +623,7 @@ export class MockPdvAdapter implements PdvAdapter {
           };
         }
 
-        const response = await axios.post(url, payload, {
+        const response = await axios.post(url, body, {
           timeout: Math.max(1000, cfg.timeoutMs || 10000),
           headers: {
             ...buildHeaders(cfg),
@@ -590,9 +631,15 @@ export class MockPdvAdapter implements PdvAdapter {
           },
         });
 
-        const externalId = extractExternalId(response.data, payload.clientOrderId);
-        const duplicate = !!extractPayload(response.data)?.duplicate;
-        bucket[payload.clientOrderId] = externalId;
+        const responsePayload = extractPayload(response.data);
+        const externalId = operationalOrder
+          ? (typeof responsePayload?.id === 'string' ? responsePayload.id.trim() : '')
+          : extractExternalId(response.data, payload.clientOrderId);
+        if (!externalId) {
+          return { success: false, message: 'O Hortifruit retornou sem identificador do pedido.' };
+        }
+        const duplicate = responsePayload?.duplicate === true;
+        if (!operationalOrder) bucket[payload.clientOrderId] = externalId;
 
         return {
           success: true,
@@ -605,8 +652,8 @@ export class MockPdvAdapter implements PdvAdapter {
           const status = error.response?.status;
           const payloadData = error.response?.data;
 
-          if (status === 409) {
-            const externalId = extractExternalId(payloadData, payload.clientOrderId);
+          const externalId = extractExternalId(payloadData, '');
+          if (!operationalOrder && status === 409 && extractPayload(payloadData)?.duplicate === true && externalId) {
             bucket[payload.clientOrderId] = externalId;
             return {
               success: true,

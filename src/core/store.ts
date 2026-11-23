@@ -501,6 +501,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   sendCurrentOrder: async () => {
     const state = get();
     if (!state.operator || !state.session || !state.tenant) return { ok: false, message: 'Sessao nao iniciada.' };
+    if (state.sending) return { ok: false, message: 'Ja existe um envio em andamento.' };
     if (state.tenant.licenseStatus !== 'active') return { ok: false, message: 'Licenca expirada.' };
     if (state.mode === 'scanner' && !state.canUseFeature('scanner')) return { ok: false, message: 'Scanner desativado para este cliente.' };
     if (state.mode === 'stock' && !state.canUseFeature('stockFlow')) return { ok: false, message: 'Modo de estoque desativado para este cliente.' };
@@ -510,13 +511,17 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
     if (!state.items.length) return { ok: false, message: 'Sem itens para enviar.' };
 
+    const adapter = new MockPdvAdapter(state.forceOffline);
+    const varejaoOrders = adapter.usesVarejaoOperationalOrders(state.tenant.tenantId);
+    if (varejaoOrders && state.mode === 'stock') {
+      return { ok: false, message: 'Registre a contagem de estoque no Hortifruit.' };
+    }
+
     const baseId = uid();
-    const dispatchTargets: DispatchTarget[] =
-      state.mode === 'table'
-        ? ['cashier', ...(state.canUseFeature('kitchenRouting') && state.session.enableKitchenProduction ? (['kitchen'] as DispatchTarget[]) : [])]
-        : state.mode === 'stock'
-          ? ['system']
-          : ['cashier'];
+    const dispatchTargets: DispatchTarget[] = state.mode === 'stock' ? ['system'] : ['cashier'];
+    if (!varejaoOrders && state.mode === 'table' && state.canUseFeature('kitchenRouting') && state.session.enableKitchenProduction) {
+      dispatchTargets.push('kitchen');
+    }
 
     const payloads: OrderPayload[] = dispatchTargets.map((target, index) => ({
       tenantId: state.tenant!.tenantId,
@@ -542,7 +547,6 @@ export const useAppStore = create<AppState>((set, get) => ({
 
     set({ sending: true });
     try {
-      const adapter = new MockPdvAdapter(state.forceOffline);
       const results: Array<{ payload: OrderPayload; success: boolean; externalId?: string; duplicate?: boolean }> = [];
 
       for (const payload of payloads) {
@@ -604,7 +608,10 @@ export const useAppStore = create<AppState>((set, get) => ({
       }
 
       if (!sentTargets.length && !duplicateTargets.length) {
-        return { ok: true, offlineQueued: true, message: 'API offline. Pedido salvo para sincronizar.' };
+        const message = varejaoOrders
+          ? 'Pedido salvo. O Hortifruit ainda nao confirmou o envio.'
+          : 'API offline. Pedido salvo para sincronizar.';
+        return { ok: true, offlineQueued: true, message };
       }
 
       const okTargets = [...sentTargets, ...duplicateTargets];
@@ -629,6 +636,9 @@ export const useAppStore = create<AppState>((set, get) => ({
   closeTable: async ({ subtotal, discount, serviceFee, method }) => {
     const state = get();
     if (!state.operator || !state.session || !state.tenant) return { ok: false, message: 'Sessao nao iniciada.' };
+    if (new MockPdvAdapter(state.forceOffline).usesVarejaoOperationalOrders(state.tenant.tenantId)) {
+      return { ok: false, message: 'Feche e receba a comanda no caixa do Hortifruit.' };
+    }
     if (!state.canUseFeature('tableClose')) return { ok: false, message: 'Fechamento de mesa desativado para este cliente.' };
 
     const tableRef = state.canUseFeature('tableField') ? state.session.tableId : 'geral';
